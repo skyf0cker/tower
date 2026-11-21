@@ -1,143 +1,145 @@
 # Tower
 
-**Tower** 是运行在 **Cloudflare Workers + D1 + Cron Triggers** 上的云端网络订阅与路由规则控制平面，统一管理 **Surge 6**、**Surge 5**、**Stash** 与 **Clash.Meta** 的上游订阅拉取、节点清洗整合、策略组与分流规则编排，以及边缘安全下发与远程 MCP 运维。
+**English** | [简体中文](./README.zh-CN.md)
 
-## 核心特性
+**Tower** is a cloud-native proxy subscription and routing control plane running on **Cloudflare Workers + D1 + Cron Triggers**. It unifies upstream subscription fetching, 4-stage node normalization, policy-group & routing-rule orchestration, edge security delivery, and remote MCP operations for **Surge 6**, **Surge 5**, **Stash**, and **Clash.Meta**.
 
-- **单 Worker 全栈控制面板**
-  - 前端控制台与 Hono 边缘 API、订阅下发端点、托管规则集与远程 MCP 服务运行在同一个 Cloudflare Worker 实例，零服务器运维。
-  - 提供 **总览控制台**、**订阅源管理**、**节点整合池**、**策略与规则管理**、**访问与拉取记录** 五大视图，适配桌面、窄屏与移动端，支持浅色 / 深色模式（默认跟随系统）。
-- **灵活订阅接入与前置代理拉取**
-  - 支持远程订阅 URL、本地配置粘贴/上传导入及自建单节点托管（`local://manual-nodes`）。
-  - 内置基于 `cloudflare:sockets` + 用户态 TLS（`@reclaimprotocol/tls`）的 **SOCKS5 / HTTP 前置代理拉取**（`socks5://user:pass@host:port` 或 `host:port:user:pass`），解决部分上游订阅屏蔽 Cloudflare 出口 IP 的问题。
-  - 自动解析 `Subscription-Userinfo` 流量配额与到期时间，并通过 Cron Triggers 每 30 分钟自动同步更新。
-- **四阶节点清洗流水线与真实 TCP 测速**
-  1. **多格式解析**：自动解析 Clash / Stash YAML、Surge `.conf`、Base64 及分享链接（支持 `VLESS`、`AnyTLS`、`Snell`、`Shadowsocks`、`SSR`、`Trojan`、`VMess`、`Hysteria 2`、`Hysteria`、`TUIC`、`WireGuard`）。
-  2. **正则与高倍率守卫**：剔除到期/官网等伪节点及超出 `max_multiplier` 阈值的节点。
-  3. **入口指纹去重**：按 `protocol:server:port` 合并重复入口并保留低倍率源。
-  4. **统一模板重命名**：支持 `{REGION}`、`{LINE_TAG}`、`{PROTOCOL}`、`{SOURCE}`、`{INDEX}`、`{INDEX:02}` 实时映射。
-  - 支持通过 `cloudflare:sockets` 对节点执行真实 TCP 握手延迟探测并持久化 `latency_ms`。
-- **策略组与分流规则联动编排器**
-  - 支持 `select`、`url-test`、`fallback`、`smart` 策略组与嵌套子策略组，修改组名时自动级联更新关联规则与父策略组引用。
-  - 内置多跳路由命中模拟器（`simulate_route`）与多端实时编译器，支持 **Surge 6（原生 VLESS / REALITY / XHTTP）**、**Surge 5** 与 **Stash / Clash.Meta YAML**（含 `?target=` 显式指定及客户端 `User-Agent` 自适应）。
-- **三层边缘安全与鉴权体系**
-  1. **控制面零信任保护（Cloudflare Access）**：`/api/*` 通过 Web Crypto 校验 `Cf-Access-Jwt-Assertion` / `CF_Authorization` 的 RS256 签名（`iss` / `aud` / `exp` / `nbf`）；公网域名未配置 Access 时默认 **Fail-Closed** 锁定，仅对 `localhost` / `127.0.0.1` 自动免密放行。
-  2. **可轮转高熵订阅 Token**：默认生成 160-bit 随机 Token（`tk_...`），支持自定义或一键轮转，配合常量时间比对、IP 滑动窗口错误频控（5 分钟内失败 8 次锁定 15 分钟）、未授权静默伪装 `404`、`no-store` 防缓存头、爬虫/预览机器人 UA 拦截及可选代理客户端 UA 白名单。
-  3. **托管规则集 HMAC 派生签名**：`/r/:name?sig=...` 基于当前 `sub_token` 派生单向不可逆 `HMAC-SHA256` 签名，不暴露主 Token 且随主 Token 轮换自动失效。
-- **内置无状态远程 MCP Server（`/mcp`）**
-  - 提供 Streamable HTTP（`POST /mcp`）接口及 19 个运维工具，默认脱敏敏感 Token、订阅 URL 与节点密钥，支持通过 AI 客户端完成节点查询、手动加节点、TCP 测速、规则编排与版本发布。
+## Key Features
 
-## 架构概览
+- **Single-Worker Full-Stack Control Plane**
+  - Runs the React management dashboard alongside the Hono edge API, subscription delivery endpoints, hosted rule-sets, and remote MCP server in a single Cloudflare Worker with zero server maintenance.
+  - Includes five dedicated views (**Overview**, **Subscriptions**, **Node Pool**, **Policy & Rules Studio**, and **Access Logs**) with responsive desktop/tablet/mobile layouts and Light/Dark themes (following system preference by default).
+- **Flexible Subscription Ingestion & Upstream Proxy Fetching**
+  - Supports remote subscription URLs, local config paste/file import, and managed manual nodes (`local://manual-nodes`).
+  - Built-in **SOCKS5 / HTTP upstream proxy fetcher** (`socks5://user:pass@host:port` or `host:port:user:pass`) powered by `cloudflare:sockets` and userspace TLS (`@reclaimprotocol/tls`) to bypass upstream blocks on Cloudflare egress IPs.
+  - Automatically parses `Subscription-Userinfo` quota/expiration headers and refreshes enabled subscriptions every 30 minutes via Cron Triggers.
+- **4-Stage Node Integration Pipeline & Real TCP Latency Probing**
+  1. **Multi-Format Parsing**: Parses Clash/Stash YAML, Surge `.conf`, Base64 lists, and share URIs (`VLESS`, `AnyTLS`, `Snell`, `Shadowsocks`, `SSR`, `Trojan`, `VMess`, `Hysteria 2`, `Hysteria`, `TUIC`, `WireGuard`).
+  2. **Regex & Multiplier Guard**: Filters out expiration/info dummy entries and nodes exceeding `max_multiplier`.
+  3. **Ingress Fingerprint Deduplication**: Merges duplicate `protocol:server:port` endpoints while keeping the lower-multiplier source.
+  4. **Template-Based Renaming**: Maps normalized names dynamically using `{REGION}`, `{LINE_TAG}`, `{PROTOCOL}`, `{SOURCE}`, `{INDEX}`, and `{INDEX:02}`.
+  - Performs real TCP handshake latency probing via `cloudflare:sockets` and persists `latency_ms` in D1.
+- **Policy Group & Routing Rule Orchestrator**
+  - Supports `select`, `url-test`, `fallback`, and `smart` groups with nested sub-groups and automatic cascade renaming across linked rules and parent groups.
+  - Includes a multi-hop route hit simulator (`simulate_route`) and real-time multi-target compilers for **Surge 6 (native VLESS / REALITY / XHTTP)**, **Surge 5**, and **Stash / Clash.Meta YAML** (supporting explicit `?target=` overrides and `User-Agent` auto-detection).
+- **Three-Layer Edge Security & Authentication**
+  1. **Zero Trust Control Plane (Cloudflare Access)**: Protects `/api/*` by verifying `Cf-Access-Jwt-Assertion` / `CF_Authorization` RS256 signatures (`iss`, `aud`, `exp`, `nbf`) via Web Crypto; defaults to **Fail-Closed** on public domains when Access variables are unset, allowing passwordless access only on `localhost` / `127.0.0.1`.
+  2. **Rotatable High-Entropy Subscription Token**: Automatically provisions a 160-bit random token (`tk_...`) with manual editing and one-click rotation, constant-time comparison, sliding-window IP failure rate limiting (8 failures in 5 minutes triggers a 15-minute lockout), stealth `404` responses, `no-store` headers, crawler/link-preview UA blocking, and an optional strict proxy-client UA allowlist.
+  3. **HMAC-Derived Rule-Set Signatures**: `/r/:name?sig=...` derives an irreversible, file-scoped `HMAC-SHA256` signature from `sub_token` so hosted rule-set links never expose the primary token and automatically invalidate upon token rotation.
+- **Built-in Stateless Remote MCP Server (`/mcp`)**
+  - Exposes a Streamable HTTP (`POST /mcp`) server with 19 operational tools. Sensitive tokens, subscription URLs, proxy credentials, and node secrets are redacted by default unless explicitly requested.
+
+## Architecture Overview
 
 ```mermaid
 flowchart LR
-  Up["上游订阅 / 本地导入 / 自建节点"] -->|"直连或 SOCKS5/HTTP 前置代理"| Pipe["四阶清洗流水线 & TCP 测速"]
+  Up["Upstream Subscriptions / Local Import / Manual Nodes"] -->|"Direct or SOCKS5/HTTP Proxy"| Pipe["4-Stage Pipeline & TCP Probe"]
   Cron["Cron Triggers (*/30 * * * *)"] --> Pipe
   Pipe <--> D1[("Cloudflare D1")]
-  D1 --> Compiler["Surge 6 / Surge 5 / Stash 编译器"]
-  Compiler --> Sub["/sub/:token (Token + UA 守卫)"]
+  D1 --> Compiler["Surge 6 / Surge 5 / Stash Compiler"]
+  Compiler --> Sub["/sub/:token (Token + UA Guard)"]
   D1 --> Ruleset["/r/:name?sig=... (HMAC-SHA256)"]
   D1 <--> Api["/api/* (CF Access JWT)"]
   D1 <--> Mcp["/mcp (Bearer Token / CF Access)"]
 ```
 
-## 快速开始（本地开发）
+## Quick Start (Local Development)
 
 ```bash
-# 1. 安装依赖
+# 1. Install dependencies
 npm install
 
-# 2. 从模板生成本地 Wrangler 配置（wrangler.jsonc 已被 .gitignore 忽略，防止误提交个人域名与数据库 ID）
+# 2. Copy the template Wrangler config (wrangler.jsonc is gitignored to prevent leaking personal domains or D1 IDs)
 cp wrangler.example.jsonc wrangler.jsonc
 
-# 3. 启动本地开发服务器（自动挂载本地 D1，默认 http://127.0.0.1:8787）
+# 3. Start the local dev server with auto-mounted local D1 (default: http://127.0.0.1:8787)
 npm run dev
 ```
 
-> 本地开发访问 `localhost` / `127.0.0.1` 时，若未配置 `CF_ACCESS_*` 与 `MCP_API_TOKEN` 环境变量，控制面 `/api/*` 与 `/mcp` 会自动进入本地免密模式。
+> When accessed via `localhost` or `127.0.0.1` without `CF_ACCESS_*` or `MCP_API_TOKEN` configured, `/api/*` and `/mcp` automatically operate in local development mode without requiring login headers.
 
-### 常用命令
+### Available Scripts
 
-| 命令 | 说明 |
+| Script | Description |
 | --- | --- |
-| `npm run dev` | 启动 Vite + `@cloudflare/vite-plugin` 本地全栈开发环境 |
-| `npm run typecheck` | 执行 `tsc --noEmit` 类型检查 |
-| `npm run build` | 执行 TypeScript 编译与生产构建（输出至 `dist/`） |
-| `npm run preview` | 生产构建并以 `wrangler dev` 本地预览 |
-| `npm run deploy` | 生产构建并部署至 Cloudflare Workers |
-| `npm run db:migrate:local` | 对本地 D1 执行 `migrations/` 数据库迁移 |
-| `npm run db:migrate:remote` | 对远程生产 D1 执行 `migrations/` 数据库迁移 |
+| `npm run dev` | Start Vite + `@cloudflare/vite-plugin` full-stack local dev server |
+| `npm run typecheck` | Run TypeScript type checking (`tsc --noEmit`) |
+| `npm run build` | Build worker & client production bundles into `dist/` |
+| `npm run preview` | Build production assets and preview locally with `wrangler dev` |
+| `npm run deploy` | Build and deploy to Cloudflare Workers |
+| `npm run db:migrate:local` | Apply `migrations/` SQL schema changes to local D1 |
+| `npm run db:migrate:remote` | Apply `migrations/` SQL schema changes to remote production D1 |
 
-## 部署到 Cloudflare Workers
+## Deploying to Cloudflare Workers
 
-### 1. 准备配置与远程 D1 数据库
+### 1. Configure Wrangler & Remote D1
 
 ```bash
-# 1) 若尚未复制模板，先创建本地配置
+# 1) Create your local wrangler.jsonc from the template if you haven't already
 cp wrangler.example.jsonc wrangler.jsonc
 
-# 2) 创建远程 D1 数据库，并将输出的 database_id 填入 wrangler.jsonc
+# 2) Create a remote D1 database and copy the generated database_id into wrangler.jsonc
 npx wrangler d1 create tower-db
 
-# 3) 初始化远程表结构
+# 3) Apply migrations to remote D1
 npm run db:migrate:remote
 ```
 
-打开你的本地 `wrangler.jsonc`：
-- 将 `d1_databases[0].database_id` 替换为上一步创建的真实 UUID；
-- 取消注释 `routes` 并填入你的自定义域名（如 `tower.example.com`），模板默认已设置 `"workers_dev": false` 关闭预览子域暴露；
-- 执行构建与部署：
+Edit your local `wrangler.jsonc`:
+- Replace `d1_databases[0].database_id` with your real D1 UUID;
+- Uncomment `routes` and set your custom domain (e.g., `tower.example.com`), keeping `"workers_dev": false` so the default `*.workers.dev` subdomain stays disabled;
+- Build and deploy:
 
 ```bash
 npm run deploy
 ```
 
-### 2. 配置 Cloudflare Access 零信任鉴权
+### 2. Enable Cloudflare Access Zero Trust Authentication
 
-部署到公网域名后，未配置 Access 时 `/api/*` 会返回 `403 UNCONFIGURED_CF_ACCESS`（Fail-Closed）。按以下步骤启用保护：
+On public hostnames without Access configured, `/api/*` fails closed with `403 UNCONFIGURED_CF_ACCESS`. Enable authentication as follows:
 
-1. 进入 **Cloudflare Zero Trust → Access → Applications → Add an application (Self-hosted)**：
-   - **Application domain**：填写 `tower.example.com`（保护控制台与 `/api/*`），Policy Action 设为 **Allow**（配置邮箱 OTP 或 GitHub 等登录方式）。
-2. **为订阅拉取放行 Bypass 规则**：
-   - 新增独立 Application（或子路径规则）覆盖 `tower.example.com/sub/*` 与 `tower.example.com/r/*`，Policy Action 选 **Bypass**（Include: Everyone），确保 Surge / Stash 定时更新无需网页登录，直接由 Worker 校验订阅 Token 与 HMAC 签名。
-3. **写入 Worker 鉴权 Secrets**：
+1. In **Cloudflare Zero Trust → Access → Applications → Add an application (Self-hosted)**:
+   - Set **Application domain** to `tower.example.com` (protects the dashboard UI and `/api/*`), with Policy Action set to **Allow** (e.g., email OTP or GitHub identity).
+2. **Add Bypass rules for client subscription endpoints**:
+   - Create a separate application (or path-scoped rule) covering `tower.example.com/sub/*` and `tower.example.com/r/*` with Policy Action set to **Bypass** (Include: Everyone) so Surge/Stash clients can fetch updates directly while the Worker validates the subscription token and HMAC signature.
+3. **Set Worker secrets for JWT verification**:
 
 ```bash
-# 填写 Zero Trust Team 名称（如 myteam 或 https://myteam.cloudflareaccess.com）
+# Your Zero Trust Team domain (e.g., myteam or https://myteam.cloudflareaccess.com)
 npx wrangler secret put CF_ACCESS_TEAM_DOMAIN
 
-# 填写步骤 1 中生成的 Application Audience (AUD) Tag
+# Application Audience (AUD) Tag from Step 1
 npx wrangler secret put CF_ACCESS_AUD
 ```
 
-## 订阅下发与规则集端点
+## Subscription & Rule-Set Endpoints
 
-| 端点 | 参数 / 行为说明 |
+| Endpoint | Behavior / Parameters |
 | --- | --- |
-| `GET /sub/:token` | 默认根据请求 `User-Agent` 自动识别 `Surge 6` / `Surge 5` / `Stash` / `Clash` |
-| `GET /sub/:token?target=surge6` | 强制编译 Surge 6 配置（默认启用原生 VLESS 输出） |
-| `GET /sub/:token?target=surge` | 强制编译 Surge 5 配置（默认过滤 VLESS，兼容 `?target=surge5`） |
-| `GET /sub/:token?target=stash` | 强制编译 Stash / Clash.Meta YAML（兼容 `?target=clash`、`?target=yaml`） |
-| `GET /sub/:token?vless=1` / `0` | 显式控制 Surge 输出中是否包含 VLESS 节点 |
-| `GET /r/:name?sig=<hmac>` | 获取签名托管规则集（内置 `ai-suite.list`、`streaming.list`、`telegram-cidr.list`、`reject-telemetry.list`） |
+| `GET /sub/:token` | Auto-detects `Surge 6`, `Surge 5`, `Stash`, or `Clash` from request `User-Agent` |
+| `GET /sub/:token?target=surge6` | Compiles a Surge 6 profile (native VLESS enabled by default) |
+| `GET /sub/:token?target=surge` | Compiles a Surge 5 profile (VLESS filtered out by default; alias `?target=surge5`) |
+| `GET /sub/:token?target=stash` | Compiles Stash / Clash.Meta YAML (aliases `?target=clash`, `?target=yaml`) |
+| `GET /sub/:token?vless=1` / `0` | Explicitly enable or disable VLESS nodes in Surge profiles |
+| `GET /r/:name?sig=<hmac>` | Serves HMAC-signed hosted rule-sets (`ai-suite.list`, `streaming.list`, `telegram-cidr.list`, `reject-telemetry.list`) |
 
-## 内置远程 MCP Server（`/mcp`）
+## Built-in Remote MCP Server (`/mcp`)
 
-Tower 内置无状态 **Streamable HTTP MCP Server**（`POST /mcp`），支持标准 Bearer Token 鉴权与 Cloudflare Access 校验。
+Tower includes a stateless **Streamable HTTP MCP Server** (`POST /mcp`) secured by Bearer token or Cloudflare Access authentication.
 
-### 1. Token 管理与 Access 放行
+### 1. Token Management & Access Configuration
 
-Tower 会自动生成并持久化 160-bit 高熵 **MCP Token**（`mcp_...`），可在控制台 **「访问与拉取记录」→「远程 MCP Server 鉴权 Token」** 查看、复制客户端配置、自定义或一键轮转；也可额外注入环境变量密钥：
+Tower automatically generates and persists a 160-bit **MCP Token** (`mcp_...`), which can be viewed, copied as client JSON, customized, or rotated in the dashboard under **Access Logs → Remote MCP Server Auth Token**. You can also set an optional secret via Wrangler:
 
 ```bash
 npx wrangler secret put MCP_API_TOKEN
 ```
 
-若开启了 Cloudflare Access 保护整站域名，可二选一放行 `/mcp`：
-- **方式 A（推荐）**：为 `tower.example.com/mcp` 添加 Cloudflare Access **Bypass** 规则，由 Worker 校验 `Authorization: Bearer <MCP_TOKEN>`（或 `X-MCP-Token`）。
-- **方式 B**：使用 Cloudflare Access Service Token，在客户端请求头携带 `CF-Access-Client-Id` 与 `CF-Access-Client-Secret`。
+If Cloudflare Access protects the domain, allow `/mcp` using either option:
+- **Option A (Recommended)**: Add a Cloudflare Access **Bypass** rule for `tower.example.com/mcp`, letting the Worker verify `Authorization: Bearer <MCP_TOKEN>` (or `X-MCP-Token`).
+- **Option B**: Use a Cloudflare Access Service Token (`CF-Access-Client-Id` and `CF-Access-Client-Secret` headers).
 
-### 2. MCP 客户端配置示例
+### 2. MCP Client Configuration Example
 
 ```json
 {
@@ -152,45 +154,45 @@ npx wrangler secret put MCP_API_TOKEN
 }
 ```
 
-### 3. 可用 MCP Tools（共 19 个）
+### 3. Available MCP Tools (19 Total)
 
-| 分类 | Tool 名称 | 功能说明 |
+| Category | Tool Name | Description |
 | --- | --- | --- |
-| 状态与设置 | `get_platform_state` | 获取全局设置、revision、流水线统计、策略组与规则（敏感字段默认脱敏） |
-| 状态与设置 | `update_settings` | 更新重命名模板、过滤正则、最大倍率、去重与 UA 守卫（自动重建节点池） |
-| 状态与设置 | `publish_revision` | 递增 `revision` 正式发布版本（可选先同步上游订阅） |
-| 订阅与节点 | `list_subscriptions` | 列出订阅源配额、节点统计与状态（URL/代理凭证默认脱敏） |
-| 订阅与节点 | `upsert_subscription` | 新增或更新远程/本地订阅源（支持前置代理）并自动重建节点池 |
-| 订阅与节点 | `delete_subscription` | 删除订阅源并重建节点池 |
-| 订阅与节点 | `sync_subscriptions` | 立即同步指定或全部已启用订阅源 |
-| 订阅与节点 | `list_nodes` | 按状态、地区、订阅源、协议或关键词筛选节点 |
-| 订阅与节点 | `get_node_detail` | 查看单节点详情、命中策略组及 Surge 5 / Surge 6 / Stash 编译预览 |
-| 订阅与节点 | `add_manual_node` | 添加或覆盖自建单条节点至 `local://manual-nodes` 托管源 |
-| 订阅与节点 | `delete_manual_node` | 从本地/自建源删除匹配节点并重建节点池 |
-| 订阅与节点 | `probe_nodes` | 对目标节点执行真实 TCP 握手延迟测速并更新 `latency_ms` |
-| 策略与规则 | `upsert_policy_group` | 新增或更新策略组（改名自动级联更新规则与父策略组引用） |
-| 策略与规则 | `delete_policy_group` | 删除策略组并回退引用规则目标 |
-| 策略与规则 | `upsert_rule` | 新增或更新分流规则与优先级 |
-| 策略与规则 | `delete_rule` | 按 ID 删除分流规则 |
-| 策略与规则 | `scaffold_policy_and_rules` | 根据当前节点地区一键生成标准地区策略组与基础规则 |
-| 模拟与编译 | `simulate_route` | 模拟域名 / URL / IP / 进程名的路由命中与最终节点解析 |
-| 模拟与编译 | `compile_profile` | 实时编译 `surge`、`surge6` 或 `stash` 配置产物与摘要 |
+| State & Settings | `get_platform_state` | Retrieve global settings, revision, pipeline stats, policy groups, and rules (secrets redacted by default) |
+| State & Settings | `update_settings` | Update rename template, exclusion regex, max multiplier, dedup, and UA guards (rebuilds node pool) |
+| State & Settings | `publish_revision` | Increment `revision` to publish a new config release (optionally syncing upstream subscriptions first) |
+| Subscriptions & Nodes | `list_subscriptions` | List subscriptions, traffic quotas, node counts, and sync status (URLs & proxy passwords redacted by default) |
+| Subscriptions & Nodes | `upsert_subscription` | Create or update remote/local subscriptions (with optional upstream proxy) and rebuild the node pool |
+| Subscriptions & Nodes | `delete_subscription` | Delete a subscription source and rebuild the node pool |
+| Subscriptions & Nodes | `sync_subscriptions` | Immediately sync one or all enabled subscriptions |
+| Subscriptions & Nodes | `list_nodes` | Filter nodes by status, region, subscription ID, protocol, or keyword |
+| Subscriptions & Nodes | `get_node_detail` | Inspect a single node, matched policy groups, and Surge 5 / Surge 6 / Stash compiled previews |
+| Subscriptions & Nodes | `add_manual_node` | Add or replace a self-hosted node in the managed `local://manual-nodes` source |
+| Subscriptions & Nodes | `delete_manual_node` | Delete matching nodes from `local://` sources and rebuild the node pool |
+| Subscriptions & Nodes | `probe_nodes` | Run real TCP handshake latency probes on target nodes and persist `latency_ms` |
+| Policies & Rules | `upsert_policy_group` | Create or update a policy group (renaming cascades to rules and parent groups) |
+| Policies & Rules | `delete_policy_group` | Delete a policy group and fall back any referencing rules |
+| Policies & Rules | `upsert_rule` | Create or update a routing rule and its priority |
+| Policies & Rules | `delete_rule` | Delete a routing rule by ID |
+| Policies & Rules | `scaffold_policy_and_rules` | Auto-generate standard regional policy groups and starter rules from active nodes |
+| Simulation & Compile | `simulate_route` | Simulate route matching and final resolved node for a domain, URL, IP, or process name |
+| Simulation & Compile | `compile_profile` | Compile live `surge`, `surge6`, or `stash` configuration artifacts with summary metadata |
 
-## 技术栈与目录结构
+## Tech Stack & Project Structure
 
-- **技术栈**：Cloudflare Workers · Cloudflare D1 · Cron Triggers · `cloudflare:sockets` · Hono · `@reclaimprotocol/tls` · `yaml` · React 19 · TypeScript · Vite 6
-- **目录结构**：
-  - `wrangler.example.jsonc`：开源模板配置（复制为 `wrangler.jsonc` 后使用，后者已被 `.gitignore` 忽略）
-  - `migrations/`：D1 数据库结构迁移脚本（`0001_init.sql`、`0002_add_fetch_proxy.sql`）
-  - `src/client/`：React 19 管理控制台（`views/` 包含五大核心管理视图）
-  - `src/shared/`：前后端共享类型、策略组正则匹配与纯 TS `SHA-256` / `HMAC-SHA256` 实现
-  - `src/worker/`：Hono 边缘路由、Cloudflare Access / MCP 鉴权、D1 持久化、TCP 测速、`proxyFetch` 前置代理、MCP Server 及 `engine/`（解析、清洗、模拟、编译）
+- **Tech Stack**: Cloudflare Workers · Cloudflare D1 · Cron Triggers · `cloudflare:sockets` · Hono · `@reclaimprotocol/tls` · `yaml` · React 19 · TypeScript · Vite 6
+- **Project Structure**:
+  - `wrangler.example.jsonc` — Open-source Wrangler template (copy to gitignored `wrangler.jsonc` before running or deploying)
+  - `migrations/` — D1 SQLite schema migrations (`0001_init.sql`, `0002_add_fetch_proxy.sql`)
+  - `src/client/` — React 19 dashboard (`views/` contains the five main control-plane views)
+  - `src/shared/` — Shared types, policy group regex matcher, and pure TypeScript `SHA-256` / `HMAC-SHA256` implementation
+  - `src/worker/` — Hono routes, Cloudflare Access & MCP auth, D1 persistence, TCP probing, `proxyFetch` upstream proxy client, MCP server, and `engine/` (parser, pipeline, simulator, compiler)
 
-## 安全须知
+## Security Notes
 
-- `wrangler.jsonc`、`.dev.vars`、`.dev.vars.*`、`.env`、`.env.*`、`.wrangler/` 与 `dist/` 均已纳入 `.gitignore`，请勿提交包含个人自定义域名、D1 `database_id` 或真实密钥的文件。
-- 公网部署时请务必配置 Cloudflare Access 与高熵订阅 / MCP Token，并在完成初始验证后及时通过控制台轮转密钥。
+- `wrangler.jsonc`, `.dev.vars`, `.dev.vars.*`, `.env`, `.env.*`, `.wrangler/`, and `dist/` are excluded via `.gitignore`. Never commit personal custom domains, D1 `database_id` values, or real tokens.
+- Always configure Cloudflare Access and rotate default tokens before exposing a deployment publicly.
 
-## 开源协议
+## License
 
-基于 [MIT License](./LICENSE) 开源。
+Released under the [MIT License](./LICENSE).
